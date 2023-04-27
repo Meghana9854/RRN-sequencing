@@ -1,1 +1,457 @@
+## this is the vsearch - qiime2 pipeline used for PacBio RRN data
+#!/bin/sh
+#SBATCH --error err_vsearch.txt
+#SBATCH --output out_vsearch.txt
+#SBATCH --job-name vsearch
+#SBATCH --mail-user Meghana.Srinivas@teagasc.ie
+#SBATCH --mail-type END,FAIL
+#SBATCH -p Priority,Background
+#SBATCH -N 1
+#SBATCH --cpus-per-task=10
+
+### for this script to work you need to have your sample names in the working directory with the unique part of all samples names (in samplenames.txt)##### and a file for the primer pairs (in primerpairs.txt) ###
+
+# giving the location of where vsearch is stored so it can be called by $vsearch later throughout the script #
+vsearch=/data/Food/analysis/R1150_biotransformation/vsearch-2.22.1/bin/vsearch
+
+# this script runs from the 2.new_vsearch directory #
+cd /data/Food/analysis/R1150_biotransformation/RRN_mc_PB/2.new_vsearch/
+
+mkdir 1.length_filtered
+mkdir 2.per_sample_derep_fulllength
+mkdir ./2.per_sample_derep_fulllength/uc_files
+
+for i in $(cat samplenames.txt)
+do
+## 1. keeping reads only between 3500 to 5000 bp ## qscore set to 126 because that's the max ##
+   $vsearch --fastq_filter ../1.data/demux_QualLessThan_80/"$i"_qls.fastq \
+       --fastq_qmax 93 \
+       --fastq_minlen 3500 \
+       --fastq_maxlen 5000 \
+       --fastaout ./1.length_filtered/"$i"_pb_lenfiltered.fasta \
+       --fasta_width 0   
+## 2. derepelicating reads with each sample ## (need can try fast_unique on ONT data) ##
+   $vsearch --derep_fulllength ./1.length_filtered/"$i"_pb_lenfiltered.fasta \
+       --strand both \
+       --output ./2.per_sample_derep_fulllength/"$i"_pb_derep.fasta \
+       --sizeout \
+       --uc ./2.per_sample_derep_fulllength/uc_files/"$i"_pb_derep.uc \
+       --relabel "$i". \
+       --fasta_width 0         
+done       
+
+## nanoplot to look at the no.of sequneces and distribution of the read lengths ##
+## concat fasta files for the same since nanoplot can only take one input fasta file #
+mkdir ./1.length_filtered/nanoplots
+cat ./1.length_filtered/*_pb_lenfiltered.fasta >> ./1.length_filtered/nanoplots/onefile.fasta
+mkdir ./2.per_sample_derep_fulllength/nanoplots
+cat ./2.per_sample_derep_fulllength/*_pb_derep.fasta >> ./2.per_sample_derep_fulllength/nanoplots/onefile.fasta
+
+## now running nanoplot on the cat files ##
+module load nanoplot/1.28.2
+
+NanoPlot --fasta ./1.length_filtered/nanoplots/onefile.fasta --huge -o ./1.length_filtered/nanoplots
+NanoPlot --fasta ./2.per_sample_derep_fulllength/nanoplots/onefile.fasta --huge -o ./2.per_sample_derep_fulllength/nanoplots
+
+module unload nanoplot/1.28.2
+
+## 3. merging all the derep.fasta files from each sample into one big fasta file ## the reason for this is apparently it works better with chimera removal ##  as per torgnes' github page (under dereplication question in the wiki page) ##
+## but we need to keep our primer pairs separate for OTU tables and taxonomic classification ##
+
+## for the 27Fv2_2241R (2S) primer pair ##
+cat ./2.per_sample_derep_fulllength/*_27Fv2_2241R_pb_derep.fasta >> ./2.per_sample_derep_fulllength/per_primer/27Fv2_2241R_derep.fasta
+## for the 27Fv2_2428R (2L) primer pair ##
+cat ./2.per_sample_derep_fulllength/*_27Fv2_2428R_pb_derep.fasta >> ./2.per_sample_derep_fulllength/per_primer/27Fv2_2428R_derep.fasta
+## for the 519F_2241R (5S) primer pair ##
+cat ./2.per_sample_derep_fulllength/*_519F_2241R_pb_derep.fasta >> ./2.per_sample_derep_fulllength/per_primer/519F_2241R_derep.fasta
+## for the 519F_2428R (5L) primer pair ##
+cat ./2.per_sample_derep_fulllength/*_519F_2428R_pb_derep.fasta >> ./2.per_sample_derep_fulllength/per_primer/519F_2428R_derep.fasta
+
+mkdir ./3.all_derep_fulllength_pb
+mkdir ./3.all_derep_fulllength_pb/uc_files
+mkdir ./4.precluster_before_chimera_detection
+mkdir ./4.precluster_before_chimera_detection/uc_file
+mkdir ./5.de_novo_chimera_removal
+mkdir ./6.ref_based_chimera_removal
+mkdir ./6.ref_based_chimera_removal/GTDB_NR
+mkdir ./6.ref_based_chimera_removal/RefSeq_NR
+
+for i in $(cat primerpairs.txt)
+do
+## 4. dereplicating across all the samples i.e. from the combined fasta files for each primer pair ## 
+   $vsearch --derep_fulllength ./2.per_sample_derep_fulllength/per_primer/"$i"_derep.fasta \
+      --minuniquesize 2 \
+      --sizein \
+      --sizeout \
+      --fasta_width 0 \
+      --uc ./3.all_derep_fulllength_pb/uc_files/"$i"_all_derep.uc \
+      --output ./3.all_derep_fulllength_pb/"$i"_all_derep.fasta 
+
+## 5. precluster at 98% before chimera detection ##
+   $vsearch --cluster_size ./3.all_derep_fulllength_pb/"$i"_all_derep.fasta \
+     --threads $10 \
+     --id 0.98 \
+     --strand both \
+     --sizein \
+     --sizeout \
+     --fasta_width 0 \
+     --uc ./4.precluster_before_chimera_detection/uc_file/"$i"_all_preclustered.uc \
+     --centroids ./4.precluster_before_chimera_detection/"$i"_all_preclustered.fasta
+
+## 6. de novo chimera detection ##
+    $vsearch --uchime_denovo ./4.precluster_before_chimera_detection/"$i"_all_preclustered.fasta \
+     --sizein \
+     --sizeout \
+     --fasta_width 0 \
+     --nonchimeras ./5.de_novo_chimera_removal/"$i"_all_denovo_nonchimeras.fasta
+
+## 7. reference based chimera removal ## option i: with FANGORN GTDB NR nrCON as the reference database downloaded from https://melbourne.figshare.com/articles/dataset/Fangorn_rrn_Database/20086916?file=37794402##
+   $vsearch --uchime_ref ./5.de_novo_chimera_removal/"$i"_all_denovo_nonchimeras.fasta \
+    --db /data/Food/analysis/R1150_biotransformation/Fangorn_db/GTDB_NR_207/nrCon.fasta \
+    --sizein \
+    --sizeout \
+    --fasta_width 0 \
+    --nonchimeras ./6.ref_based_chimera_removal/GTDB_NR/"$i"_all_GTDB_ref_nonchimeras.fasta    
+
+## 7. reference based chimera removal ## option ii: with FANGORN RefSeq NR nrCON as the reference database downloaded from https://melbourne.figshare.com/articles/dataset/Fangorn_rrn_Database/20086916?file=37794402##
+   $vsearch --uchime_ref ./5.de_novo_chimera_removal/"$i"_all_denovo_nonchimeras.fasta \
+    --db /data/Food/analysis/R1150_biotransformation/Fangorn_db/RefSeq_NR_207/nrCon.fasta \
+    --sizein \
+    --sizeout \
+    --fasta_width 0 \
+    --nonchimeras ./6.ref_based_chimera_removal/RefSeq_NR/"$i"_all_RefSeq_ref_nonchimeras.fasta
+done     
+
+## nanoplot to look at the no.of sequneces and distribution of the read lengths from chimera removal (de novo and ref-based) ##
+mkdir ./5.de_novo_chimera_removal/nanoplots
+mkdir ./6.ref_based_chimera_removal/GTDB_nanoplots
+mkdir ./6.ref_based_chimera_removal/RefSeq_nanoplots
+
+module load nanoplot/1.28.2
+for i in $(cat primerpairs.txt)
+do
+NanoPlot --fasta ./5.de_novo_chimera_removal/"$i"_all_denovo_nonchimeras.fasta --huge -o ./5.de_novo_chimera_removal/nanoplots/"$i"/
+NanoPlot --fasta  ./6.ref_based_chimera_removal/GTDB_NR/"$i"_all_GTDB_ref_nonchimeras.fasta --huge -o ./6.ref_based_chimera_removal/GTDB_nanoplots/"$i"/
+NanoPlot --fasta ./6.ref_based_chimera_removal/RefSeq_NR/"$i"_all_RefSeq_ref_nonchimeras.fasta --huge -o ./6.ref_based_chimera_removal/RefSeq_nanoplots/"$i"/
+done
+
+module unload nanoplot/1.28.2
+
+## 8. now that we have the unique sequences for all the reads across samples, we're putting those back against the individual reads ##
+
+mkdir ./7.map_pl_output
+mkdir ./7.map_pl_output/intermediate_files
+
+## (i) for GTDB-based chimera removal ##
+## for the 27Fv2_2241R (2S) primer pair 
+echo Extract all non-chimeric, non-singleton sequences, dereplicate
+perl ./map.pl ./3.all_derep_fulllength_pb/27Fv2_2241R_all_derep.fasta ./4.precluster_before_chimera_detection/uc_file/27Fv2_2241R_all_preclustered.uc ./6.ref_based_chimera_removal/GTDB_NR/27Fv2_2241R_all_GTDB_ref_nonchimeras.fasta > ./7.map_pl_output/intermediate_files/27Fv2_2241R_GTDB_all_nonchimeras_derep.fasta
+echo Extract all non-chimeric, non-singleton sequences in each sample
+perl ./map.pl ./2.per_sample_derep_fulllength/per_primer/27Fv2_2241R_derep.fasta ./3.all_derep_fulllength_pb/uc_files/27Fv2_2241R_all_derep.uc ./7.map_pl_output/intermediate_files/27Fv2_2241R_GTDB_all_nonchimeras_derep.fasta > ./7.map_pl_output/27Fv2_2241R_GTDB_all_nonchimeras.fasta
+
+## for the 27Fv2_2428R (2L) primer pair 
+echo Extract all non-chimeric, non-singleton sequences, dereplicate
+perl ./map.pl ./3.all_derep_fulllength_pb/27Fv2_2428R_all_derep.fasta ./4.precluster_before_chimera_detection/uc_file/27Fv2_2428R_all_preclustered.uc ./6.ref_based_chimera_removal/GTDB_NR/27Fv2_2428R_all_GTDB_ref_nonchimeras.fasta > ./7.map_pl_output/intermediate_files/27Fv2_2428R_GTDB_all_nonchimeras_derep.fasta
+echo Extract all non-chimeric, non-singleton sequences in each sample
+perl ./map.pl ./2.per_sample_derep_fulllength/per_primer/27Fv2_2428R_derep.fasta ./3.all_derep_fulllength_pb/uc_files/27Fv2_2428R_all_derep.uc ./7.map_pl_output/intermediate_files/27Fv2_2428R_GTDB_all_nonchimeras_derep.fasta > ./7.map_pl_output/27Fv2_2428R_GTDB_all_nonchimeras.fasta
+
+## for the 519F_2241R (5S) primer pair 
+echo Extract all non-chimeric, non-singleton sequences, dereplicate
+perl ./map.pl ./3.all_derep_fulllength_pb/519F_2241R_all_derep.fasta ./4.precluster_before_chimera_detection/uc_file/519F_2241R_all_preclustered.uc ./6.ref_based_chimera_removal/GTDB_NR/519F_2241R_all_GTDB_ref_nonchimeras.fasta > ./7.map_pl_output/intermediate_files/519F_2241R_GTDB_all_nonchimeras_derep.fasta
+echo Extract all non-chimeric, non-singleton sequences in each sample
+perl ./map.pl ./2.per_sample_derep_fulllength/per_primer/519F_2241R_derep.fasta ./3.all_derep_fulllength_pb/uc_files/519F_2241R_all_derep.uc ./7.map_pl_output/intermediate_files/519F_2241R_GTDB_all_nonchimeras_derep.fasta > ./7.map_pl_output/519F_2241R_GTDB_all_nonchimeras.fasta
+
+## for the 519F_2428R (5L) primer pair 
+echo Extract all non-chimeric, non-singleton sequences, dereplicate
+perl ./map.pl ./3.all_derep_fulllength_pb/519F_2428R_all_derep.fasta ./4.precluster_before_chimera_detection/uc_file/519F_2428R_all_preclustered.uc ./6.ref_based_chimera_removal/GTDB_NR/519F_2428R_all_GTDB_ref_nonchimeras.fasta > ./7.map_pl_output/intermediate_files/519F_2428R_GTDB_all_nonchimeras_derep.fasta
+echo Extract all non-chimeric, non-singleton sequences in each sample
+perl ./map.pl ./2.per_sample_derep_fulllength/per_primer/519F_2428R_derep.fasta ./3.all_derep_fulllength_pb/uc_files/519F_2428R_all_derep.uc ./7.map_pl_output/intermediate_files/519F_2428R_GTDB_all_nonchimeras_derep.fasta > ./7.map_pl_output/519F_2428R_GTDB_all_nonchimeras.fasta
+
+
+## (ii) for RefSeq-based chimera removal ##
+## for the 27Fv2_2241R (2S) primer pair 
+echo Extract all non-chimeric, non-singleton sequences, dereplicate
+perl ./map.pl ./3.all_derep_fulllength_pb/27Fv2_2241R_all_derep.fasta ./4.precluster_before_chimera_detection/uc_file/27Fv2_2241R_all_preclustered.uc ./6.ref_based_chimera_removal/RefSeq_NR/27Fv2_2241R_all_RefSeq_ref_nonchimeras.fasta > ./7.map_pl_output/intermediate_files/27Fv2_2241R_RefSeq_all_nonchimeras_derep.fasta
+echo Extract all non-chimeric, non-singleton sequences in each sample
+perl ./map.pl ./2.per_sample_derep_fulllength/per_primer/27Fv2_2241R_derep.fasta ./3.all_derep_fulllength_pb/uc_files/27Fv2_2241R_all_derep.uc ./7.map_pl_output/intermediate_files/27Fv2_2241R_RefSeq_all_nonchimeras_derep.fasta > ./7.map_pl_output/27Fv2_2241R_RefSeq_all_nonchimeras.fasta
+
+## for the 27Fv2_2428R (2L) primer pair 
+echo Extract all non-chimeric, non-singleton sequences, dereplicate
+perl ./map.pl ./3.all_derep_fulllength_pb/27Fv2_2428R_all_derep.fasta ./4.precluster_before_chimera_detection/uc_file/27Fv2_2428R_all_preclustered.uc ./6.ref_based_chimera_removal/RefSeq_NR/27Fv2_2428R_all_RefSeq_ref_nonchimeras.fasta > ./7.map_pl_output/intermediate_files/27Fv2_2428R_RefSeq_all_nonchimeras_derep.fasta
+echo Extract all non-chimeric, non-singleton sequences in each sample
+perl ./map.pl ./2.per_sample_derep_fulllength/per_primer/27Fv2_2428R_derep.fasta ./3.all_derep_fulllength_pb/uc_files/27Fv2_2428R_all_derep.uc ./7.map_pl_output/intermediate_files/27Fv2_2428R_RefSeq_all_nonchimeras_derep.fasta > ./7.map_pl_output/27Fv2_2428R_RefSeq_all_nonchimeras.fasta
+
+## for the 519F_2241R (5S) primer pair 
+echo Extract all non-chimeric, non-singleton sequences, dereplicate
+perl ./map.pl ./3.all_derep_fulllength_pb/519F_2241R_all_derep.fasta ./4.precluster_before_chimera_detection/uc_file/519F_2241R_all_preclustered.uc ./6.ref_based_chimera_removal/RefSeq_NR/519F_2241R_all_RefSeq_ref_nonchimeras.fasta > ./7.map_pl_output/intermediate_files/519F_2241R_RefSeq_all_nonchimeras_derep.fasta
+echo Extract all non-chimeric, non-singleton sequences in each sample
+perl ./map.pl ./2.per_sample_derep_fulllength/per_primer/519F_2241R_derep.fasta ./3.all_derep_fulllength_pb/uc_files/519F_2241R_all_derep.uc ./7.map_pl_output/intermediate_files/519F_2241R_RefSeq_all_nonchimeras_derep.fasta > ./7.map_pl_output/519F_2241R_RefSeq_all_nonchimeras.fasta
+
+## for the 519F_2428R (5L) primer pair 
+echo Extract all non-chimeric, non-singleton sequences, dereplicate
+perl ./map.pl ./3.all_derep_fulllength_pb/519F_2428R_all_derep.fasta ./4.precluster_before_chimera_detection/uc_file/519F_2428R_all_preclustered.uc ./6.ref_based_chimera_removal/RefSeq_NR/519F_2428R_all_RefSeq_ref_nonchimeras.fasta > ./7.map_pl_output/intermediate_files/519F_2428R_RefSeq_all_nonchimeras_derep.fasta
+echo Extract all non-chimeric, non-singleton sequences in each sample
+perl ./map.pl ./2.per_sample_derep_fulllength/per_primer/519F_2428R_derep.fasta ./3.all_derep_fulllength_pb/uc_files/519F_2428R_all_derep.uc ./7.map_pl_output/intermediate_files/519F_2428R_RefSeq_all_nonchimeras_derep.fasta > ./7.map_pl_output/519F_2428R_RefSeq_all_nonchimeras.fasta
+
+mkdir ./8.otu_binning
+
+## 9. FINALLY...generating the OTU table through clustering ##
+## (i) for GTDB-based chimeras removed ##
+# have included clustering thresholds of 97%, 98%, 99%, 99.5%, and 99.9%
+
+mkdir ./8.otu_binning/GTDB
+#mkdir ./8.otu_binning/GTDB/99pc
+#mkdir ./8.otu_binning/GTDB/99.5pc
+#mkdir ./8.otu_binning/GTDB/99.9pc
+mkdir ./8.otu_binning/GTDB/97pc
+mkdir ./8.otu_binning/GTDB/98pc
+
+for i in $(cat primerpairs.txt)
+do
+## option 1: clustering threshold at 99% ## run with and without -- relabel OTU_ #
+   $vsearch --cluster_size ./7.map_pl_output/"$i"_GTDB_all_nonchimeras.fasta \
+    --threads $10 \
+    --id 0.99 \
+    --strand both \
+    --sizein \
+    --sizeout \
+    --fasta_width 0 \
+    --uc ./8.otu_binning/GTDB/99pc/"$i"_GTDB_99pc_clustered_new.uc \
+    --centroids ./8.otu_binning/GTDB/99pc/"$i"_GTDB_99pc_otus_new.fasta \
+    --otutabout ./8.otu_binning/GTDB/99pc/"$i"_GTDB_99pc_otutab_new.txt \
+    --biomout ./8.otu_binning/GTDB/99pc/"$i"_GTDB_99pc_otutab_new.biom
+    
+## option 2: clustering threshold at 97% ##  
+   $vsearch --cluster_size ./7.map_pl_output/"$i"_GTDB_all_nonchimeras.fasta \
+    --threads $10 \
+    --id 0.97 \
+    --strand both \
+    --sizein \
+    --sizeout \
+    --fasta_width 0 \
+    --uc ./8.otu_binning/GTDB/97pc/"$i"_GTDB_97pc_clustered.uc \
+    --centroids ./8.otu_binning/GTDB/97pc/"$i"_GTDB_97pc_otus.fasta \
+    --otutabout ./8.otu_binning/GTDB/97pc/"$i"_GTDB_97pc_otutab.txt \
+    --biomout ./8.otu_binning/GTDB/97pc/"$i"_GTDB_97pc_otutab.biom
+    
+## option 3: clustering threshold at 98% ##  
+   $vsearch --cluster_size ./7.map_pl_output/"$i"_GTDB_all_nonchimeras.fasta \
+    --threads $10 \
+    --id 0.98 \
+    --strand both \
+    --sizein \
+    --sizeout \
+    --fasta_width 0 \
+    --uc ./8.otu_binning/GTDB/98pc/"$i"_GTDB_98pc_clustered.uc \
+    --centroids ./8.otu_binning/GTDB/98pc/"$i"_GTDB_98pc_otus.fasta \
+    --otutabout ./8.otu_binning/GTDB/98pc/"$i"_GTDB_98pc_otutab.txt \
+    --biomout ./8.otu_binning/GTDB/98pc/"$i"_GTDB_98pc_otutab.biom    
+done 
+
+## (ii) for RefSeq-based chimeras removed ##
+#mkdir ./8.otu_binning/RefSeq
+#mkdir ./8.otu_binning/RefSeq/99pc
+#mkdir ./8.otu_binning/RefSeq/99.5pc
+#mkdir ./8.otu_binning/RefSeq/99.9pc   
+
+#for i in $(cat primerpairs.txt)
+#do
+## option 1: clustering threshold at 99% ##
+   #$vsearch --cluster_size ./7.map_pl_output/"$i"_RefSeq_all_nonchimeras.fasta \
+    #--threads $10 \
+    #--id 0.99 \
+    #--strand both \
+    #-sizein \
+    #--sizeout \
+    #--fasta_width 0 \
+    #--uc ./8.otu_binning/RefSeq/99pc/"$i"_RefSeq_99pc_clustered.uc \
+    #--centroids ./8.otu_binning/RefSeq/99pc/"$i"_RefSeq_99pc_otus.fasta \
+    #--otutabout ./8.otu_binning/RefSeq/99pc/"$i"_RefSeq_99pc_otutab.txt \
+    #--biomout ./8.otu_binning/RefSeq/99pc/"$i"_RefSeq_99pc_otutab.biom
+    
+## option 2: clustering threshold at 99.5% ##  
+   #$vsearch --cluster_size ./7.map_pl_output/"$i"_RefSeq_all_nonchimeras.fasta \
+    #--threads $10 \
+    #--id 0.995 \
+    #--strand both \
+    #--sizein \
+    #--sizeout \
+    #--fasta_width 0 \
+    #--uc ./8.otu_binning/RefSeq/99.5pc/"$i"_RefSeq_995pc_clustered.uc \
+    #--centroids ./8.otu_binning/RefSeq/99.5pc/"$i"_RefSeq_995pc_otus.fasta \
+    #--otutabout ./8.otu_binning/RefSeq/99.5pc/"$i"_RefSeq_995pc_otutab.txt \
+    #--biomout ./8.otu_binning/RefSeq/99.5pc/"$i"_RefSeq_995pc_otutab.biom
+    
+## option 3: clustering threshold at 99.9% ##  
+   #$vsearch --cluster_size ./7.map_pl_output/"$i"_RefSeq_all_nonchimeras.fasta \
+    #--threads $10 \
+    #--id 0.999 \
+    #--strand both \
+    #--sizein \
+    #--sizeout \
+    #--fasta_width 0 \
+    #--uc ./8.otu_binning/RefSeq/99.9pc/"$i"_RefSeq_999pc_clustered.uc \
+    #--centroids ./8.otu_binning/RefSeq/99.9pc/"$i"_RefSeq_999pc_otus.fasta \
+    #--otutabout ./8.otu_binning/RefSeq/99.9pc/"$i"_RefSeq_999pc_otutab.txt \
+    #--biomout ./8.otu_binning/RefSeq/99.9pc/"$i"_RefSeq_999pc_otutab.biom    
+#done 
+
+## 10. Formatting vsearch's biome file (OTU table) for input in qiime2 ##
+mkdir ./8.otu_binning/biom_files_formatted
+
+## (i) for GTDB-based chimeras removed ##
+mkdir ./8.otu_binning/biom_files_formatted/GTDB
+
+## copying the biom files to another directory before converting ##
+find ./8.otu_binning/GTDB/ -name "*.biom" -type f -exec cp {} ./8.otu_binning/biom_files_formatted/GTDB \;
+
+module load biom/2.7.1
+for i in ./8.otu_binning/biom_files_formatted/GTDB/*.biom
+do
+  biom convert -i "$i" -o "${i%.*}.biomv210.biom" --table-type="OTU table" --to-hdf5
+done
+rm ./8.otu_binning/biom_files_formatted/GTDB/*otutab.biom
+
+## (ii) for RefSeq-based chimeras removed ##
+#mkdir ./8.otu_binning/biom_files_formatted/RefSeq
+
+## copying the biom files to another directory before converting ##
+#find ./8.otu_binning/RefSeq/ -name "*.biom" -type f -exec cp {} ./8.otu_binning/biom_files_formatted/RefSeq \;
+
+#for i in ./8.otu_binning/biom_files_formatted/RefSeq/*.biom
+#do
+  #biom convert -i "$i" -o "${i%.*}.biomv210.biom" --table-type="OTU table" --to-hdf5
+#done
+#rm ./8.otu_binning/biom_files_formatted/RefSeq/*otutab.biom
+#module unload biom/2.7.1
+
+##########################################################################################################################################
+#### Qiime2 pipeline ####
+##########################################################################################################################################
+module load qiime2/2021.11
+
+source activate qiime2-2021.11
+
+mkdir ./9.tax_assign/
+mkdir ./9.tax_assign/qiime_input
+
+#(i) for GTDB-based chimeras removed
+mkdir ./9.tax_assign/qiime_input/GTDB
+
+## 11.1. importing otu biom file from step 10 into qiime ## 
+for i in ./8.otu_binning/biom_files_formatted/GTDB/*.biomv210.biom; 
+do
+   #qiime tools import \
+     --input-path "$i" \
+     --type 'FeatureTable[Frequency]' \
+     --input-format BIOMV210Format \
+     --output-path ./9.tax_assign/qiime_input/GTDB/"$(basename "$i" .biomv210.biom)".qza
+done    
+
+## 11.2. importing the fasta files from step 9 into qiime ## 
+## copying fasta files from step 9 into our folder ##
+mkdir ./8.otu_binning/fasta_files
+mkdir ./8.otu_binning/fasta_files/GTDB
+find ./8.otu_binning/GTDB/ -name "*.fasta" -type f -exec cp {} ./8.otu_binning/fasta_files/GTDB \;
+
+for i in ./8.otu_binning/fasta_files/GTDB/*fasta; 
+do
+qiime tools import \
+  --type 'FeatureData[Sequence]' \
+  --input-path "$i" \
+  --output-path ./9.tax_assign/qiime_input/GTDB/"$(basename "$i" .fasta)".qza \
+  --input-format DNAFASTAFormat
+done 
+
+#(ii) for RefSeq-based chimeras removed
+
+#mkdir ./9.tax_assign/qiime_input/RefSeq
+
+## 11.1. importing otu biom file from step 10 into qiime ## 
+#for i in ./8.otu_binning/biom_files_formatted/RefSeq/*.biomv210.biom; 
+#do
+   #qiime tools import \
+     #--input-path "$i" \
+     #--type 'FeatureTable[Frequency]' \
+     #--input-format BIOMV210Format \
+     #--output-path ./9.tax_assign/qiime_input/RefSeq/"$(basename "$i" .biomv210.biom)".qza
+#done    
+
+## 11.2. importing the fasta files from step 9 into qiime ## 
+## copying fasta files from step 9 into our folder ##
+#mkdir ./8.otu_binning/fasta_files
+#mkdir ./8.otu_binning/fasta_files/RefSeq
+#find ./8.otu_binning/RefSeq/ -name "*.fasta" -type f -exec cp {} ./8.otu_binning/fasta_files/RefSeq \;
+
+#for i in ./8.otu_binning/fasta_files/RefSeq/*fasta; 
+#do
+#qiime tools import \
+  #--type 'FeatureData[Sequence]' \
+  #--input-path "$i" \
+  #--output-path ./9.tax_assign/qiime_input/RefSeq/"$(basename "$i" .fasta)".qza \
+  #--input-format DNAFASTAFormat
+#done 
+
+## 12. importing the FANGORN database files for taxonomic classification ##
+qiime tools import \
+  --type 'FeatureData[Sequence]' \
+  --input-path /data/Food/analysis/R1150_biotransformation/Fangorn_db/GTDB_NR_207/nrCon.fasta \
+  --output-path ./qiime_fangorn/GTDB_NR_seqs.qza
+  
+qiime tools import \
+  --type 'FeatureData[Taxonomy]' \
+  --input-format HeaderlessTSVTaxonomyFormat \
+  --input-path /data/Food/analysis/R1150_biotransformation/Fangorn_db/GTDB_NR_207/taxRep.tsv \
+  --output-path ./qiime_fangorn/GTDB_NR_taxonomy.qza  
+
+## 13. assigning taxnonomy to our OTU tables, per primer pair 
+## 1.i using BLAST against FANGORN - GTDB ##
+mkdir ./9.tax_assign/qiime_output
+mkdir ./9.tax_assign/qiime_output/GTDB
+
+for i in ./9.tax_assign/qiime_input/GTDB/*_otus.qza
+do
+qiime feature-classifier classify-consensus-blast \
+  --i-query "$i" \
+  --i-reference-reads ./qiime_fangorn/GTDB_NR_seqs.qza \
+  --i-reference-taxonomy ./qiime_fangorn/GTDB_NR_taxonomy.qza \
+  --o-classification ./9.tax_assign/qiime_output/GTDB/"$(basename "$i" _otus.qza)"_BLAST.qza
+done
+
+## now visualizing the taxonomic assignments ##
+mkdir ./9.tax_assign/qiime_output/GTDB/qzv_files
+
+for i in ./9.tax_assign/qiime_output/GTDB/*.qza
+do
+qiime metadata tabulate \
+  --m-input-file "$i" \
+  --o-visualization ./9.tax_assign/qiime_output/GTDB/qzv_files/"$(basename "$i" .qza)".qzv
+done
+  
+## exporting the taxonomy.qza files to .tsv files for R ##
+mkdir ./9.tax_assign/qiime_output/GTDB/qza_to_tsv_files
+
+for i in ./9.tax_assign/qiime_output/GTDB/*.qza
+do
+qiime tools export --input-path "$i" --output-path ./9.tax_assign/qiime_output/GTDB/qza_to_tsv_files
+done  
+
+#### STILL WORKING ON THIS ### need to try the NB training again on the 4 primer pairs ###
+##(ii) using the NB trained FANGORN datasets ## 
+## adding the qza files so they correspond with the FANGORN NB trained primer pairs ##
+#mkdir ./9.tax_assign/output_GTDB
+
+#for i in ./9.tax_assign/GTDB/519F_2428R_GTDB_*_otus.qza;
+#do
+#qiime feature-classifier classify-sklearn \
+  #--i-classifier /data/Food/analysis/R1150_biotransformation/Fangorn_db/NB_Classifiers/GTDB_207_NR_pairC.qza \
+  #--i-reads "$i" \
+  #--o-classification ./9.tax_assign/output_GTDB/"$(basename "$i" _otus.qza)"_taxonomy.qza
+#done
+
+#qiime taxa barplot \
+  #--i-table ./9.tax_assign/GTDB/27Fv2_2241R_GTDB_995pc_otutab.qza \ 
+  #--i-taxonomy 27Fv2_2241R_GTDB_99pc_taxonomy.qza \
+  #--m-metadata-file sample-metadata.tsv \
+  #--o-visualization taxa-bar-plots.qzv
 
