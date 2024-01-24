@@ -1,4 +1,4 @@
-# Using filtlong to QC the reads # Performed on both ONT and PacBio data
+# Using filtlong to QC the reads # Performed on ONT and PacBio data
 
 ## counting the number of reads pre quality filtering
 for i in $(cat samplenames.txt)
