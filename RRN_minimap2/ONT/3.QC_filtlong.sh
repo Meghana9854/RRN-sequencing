@@ -6,14 +6,14 @@ do
 echo "$i"
 awk '{s++}END{print s/4}' ./1.data/"$i"_qls.fastq
 done
-gzip ./1.data/*fastq
+gzip ./1.data/*_qls.fastq
 
 ## length filtering for size 3500-5000bp using cutadapt 
 module load cutadapt/2.6
 mkdir ./3.minimap/1.length_trimmed
 for i in ./1.data/*_qls.fastq.gz
 do
-#cutadapt -m 3500 -M 5000 -o ./3.minimap/1.length_trimmed/"$(basename "$i" _qls.fastq.gz)".fastq.gz "$i"
+cutadapt -m 3500 -M 5000 -o ./3.minimap/1.length_trimmed/"$(basename "$i" _qls.fastq.gz)".fastq.gz "$i"
 done
 #module unload cutadapt/2.6
 
@@ -42,4 +42,4 @@ NanoPlot --fastq ./3.minimap/2.qual_filtered_reads/onefile.fastq -o ./3.minimap/
 module unload nanoplot/1.28.2
 
 #zip the files again
-gzip ./3.minimap/2.qual_filtered_reads/*.fastq     
+gzip ./3.minimap/2.qual_filtered_reads/*.fastq
