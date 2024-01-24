@@ -40,6 +40,3 @@ cat ./3.minimap/2.qual_filtered_reads/*.fastq > ./3.minimap/2.qual_filtered_read
 module load nanoplot/1.28.2
 NanoPlot --fastq ./3.minimap/2.qual_filtered_reads/onefile.fastq -o ./3.minimap/2.qual_filtered_reads/nanoplots
 module unload nanoplot/1.28.2
-
-#zip the files again
-gzip ./3.minimap/2.qual_filtered_reads/*.fastq
