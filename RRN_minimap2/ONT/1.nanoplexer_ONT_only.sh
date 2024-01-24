@@ -1,4 +1,4 @@
-# Demultiplexing perfomed only for ONT data using nanoplexer 
+# Demultiplexing using nanoplexer # Performed only for ONT data
 
 # First demultiplex based on the M13 barcoders (outer sequences)
 mkdir demultiplexed_files
