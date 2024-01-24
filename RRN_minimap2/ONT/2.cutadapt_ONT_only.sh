@@ -1,4 +1,4 @@
-# Removing the RRN primer sequneces using cutadapt
+# Removing the RRN primer sequneces using cutadapt # Perfomed only for ONT data
 module load cutadapt/2.6
 
 ls -d *.fastq | awk -F '.fastq' '{print "cutadapt -g CAGCMGCCGCGGTAA...CGTCGTGAGACAGKTYGG -g CCRAMCTGTCTCACGACG...TTACCGCGGCKGCTG \
