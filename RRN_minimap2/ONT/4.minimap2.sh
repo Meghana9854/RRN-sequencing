@@ -1,4 +1,4 @@
-#### I. CHIMERA REMOVAL #####    # Performed on both ONT and PacBio data
+#### I. CHIMERA REMOVAL #####    # Performed on ONT and PacBio data
 ## first aligning the sequencing data with our mock_DB containing genomes of all the species/representative species in the mock communities, using minimap2 ##
 
 ### Step 1 running minimap2 ###
@@ -33,7 +33,7 @@ awk '{s++}END{print s/4}' ./3.minimap/3.chimera_removal/2.yacrd/"$i"_chimeras_re
 done
 gzip ./minimap2/3.chimera_removal/2.yacrd/*_chimeras_removed.fastq
 
-###### II. ASSIGNING TAXONOMY #####   # Performed on both ONT and PacBio data
+###### II. ASSIGNING TAXONOMY #####   # Performed on ONT and PacBio data
 ### Step 4 taxonomy assignment using minimap2 against FANGORN ###
 module load minimap2/2.17-r974
 mkdir ./3.minimap/4.tax_assign/
