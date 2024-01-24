@@ -14,6 +14,7 @@ module unload minimap2/2.17-r974
 
 ### Step 2: chimera removal with yacrd ###
 # yacrd first detects the chimeras and then filters them out from the length trimmed fastq sequencing files # 
+# for this script to work you need to have your sample names in the working directory with the unique part of all samples names (in samplenames.txt) #
 module load yacrd/1.0
 mkdir ./3.minimap/3.chimera_removal/2.yacrd
 for i in $(cat samplenames.txt)
