@@ -1,0 +1,195 @@
+library("readr")
+library("tidyverse")
+library("doBy")
+library("reshape2")
+library("purrr")
+
+# 
+
+#########################
+##### FANGORN GTDB ######
+
+GTDB_tax <- read.csv("/data/Food/analysis/R1150_biotransformation/minimap_database_tsv_files/taxRep_GTDB_nr.csv", header = F)
+colnames(GTDB_tax) <- c("op", "tax")
+
+#####
+
+# making and defining a function to process each data frame
+process_data <- function(df) {
+  # Set column names ## NOTE: name op as match instead for mirror ##
+  col_names <- c("Query", "Q_length", "Q_start", "Q_end", "Strand", "op", "T_length", "T_start", 
+                 "T_end", "N_res_matches", "Align_block", "MapQ", "NM", "ms", "AS", "nn", "P_S") 
+  
+  df <- df[,1:17] %>%
+    setNames(col_names) %>%
+    mutate(
+      AS = as.numeric(gsub("AS:i:", "", AS)), # getting the alignment scores from AS:i
+      per.match = (N_res_matches / Align_block) * 100 # calculating the per match values
+    ) %>%
+    select(Query, op, N_res_matches, Align_block, AS, MapQ, per.match) # name op as match instead for mirror
+  
+  # merge df with the taxonomy file #
+  df <- left_join(df, GTDB_tax, by ="op") # change to corresponding tax database name
+  # changining column names for per.match to Matching and the adding the column name Tax to the merged tax co #
+  colnames(df)<-c("Query","op","N_res_matches","Align_block","AS","MapQ","Matching","Tax")
+  
+  # Filter rows based on Align_block
+  df <- subset(df, Align_block > 2999)
+  
+  # Summarise the data #
+  # finds the maximum value of the AS variable for each unique combination of Query, Tax, Matching, and MapQ #
+  # essentially picks the highest or the first when ASmax is also the same for Query that have same Matching, Tax and MapQ values #
+  df <- summaryBy(AS ~ Query + Tax + Matching + MapQ, data=df, FUN=max)
+  
+  # there are still multiple alignments/matches for each query #
+  # so now selecting the Query-Matches with the highest MapQ value #
+  df <- df %>%
+    group_by(Query) %>%
+    slice_max(MapQ) %>%
+    ungroup()
+  
+  # mapQ value was 0 there were still multiple alignments for one query #
+  # so for those we are selecting the Query-Matches with the highest AS.max value #
+  df <- df %>%
+    group_by(Query) %>%
+    slice_max(AS.max) %>%
+    ungroup()
+  
+  # where AS.max was the same for multiple alignments for one query #
+  # so for those we are selecting the Query-Matches with the highest Matching value #
+    df <- df %>%
+    group_by(Query) %>%
+    slice_max(Matching) %>%
+    ungroup()
+    
+  # when MapQ, AS.max, and matching are all te same, select the first row of Query with duplicate values #
+  df <- df[!duplicated(df$Query), ]
+  
+  #### for FANGORN GTDB and RefSeq #####
+  # Clean and organise the table 
+  df <- df %>%
+    # Split the Taxon column into separate taxonomic levels
+    separate(Tax, into=c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"), sep="\\|") %>%
+    # Remove the prefix from each taxonomic level
+    mutate_at(vars(Kingdom:Genus), ~substr(., 4, nchar(.))) %>%
+    # getting counts for all the alignments at genus level #
+    group_by(Genus) %>%
+    summarise(Counts = n())
+  
+  # Reshape dataframe to wide format
+  df <- df %>%
+    pivot_wider(names_from = Genus, values_from = Counts, values_fill = 0)
+  
+  ## changing counts to relative abundance ##
+  df <- df/rowSums(df)*100
+  rowSums(df) ## to check if each sample adds up to a 100 ##
+  
+  # Convert tf from wide back to long format
+  df <- df %>%
+    pivot_longer(cols = everything(), names_to = "Genus", values_to = "Rel_abundance")
+  
+  return(df)
+}
+
+##########################################
+### FANGORN_GTDB_RRN - minimap files ###
+##########################################
+
+# importing all paf files that were taxonomically classified using FANGORN GTDB_nrRep - minimap2
+
+# Set your working directory to where your files are
+setwd("/data/Food/analysis/R1150_biotransformation/RRN_mc_ONT/minimap2/tax_assign/GTDB_Fangorn/")
+
+# going per sample to reduce computational load #
+# Get list of .paf file names per sample #
+
+######### APC 24 st moc com #######
+
+GTDB_APC_file_list <- list.files(pattern = "APC_.*_nrRep\\.paf$")
+
+# Read all files
+GTDB_APC_data_list <- map(GTDB_APC_file_list, ~read.delim(., header = F))
+
+# Apply the function to each data frame in the list
+GTDB_APC_processed_data_list <- lapply(GTDB_APC_data_list, process_data)
+
+# making one large dataframe for all the files and adding file names as a column #
+# Get file names without the extension
+GTDB_APC_file_names <- tools::file_path_sans_ext(GTDB_APC_file_list)
+
+# Apply the function to each data frame and each file name
+GTDB_APC_combined_data <- purrr::map2_df(GTDB_APC_processed_data_list, GTDB_APC_file_names, ~cbind(.x, FileName = .y))
+
+######### gDNA moc com #######
+
+GTDB_gDNA_file_list <- list.files(pattern = "gDNA_.*_nrRep\\.paf$")
+
+# Read all files
+GTDB_gDNA_data_list <- map(GTDB_gDNA_file_list, ~read.delim(., header = F))
+
+# Apply the function to each data frame in the list
+GTDB_gDNA_processed_data_list <- lapply(GTDB_gDNA_data_list, process_data)
+
+# making one large dataframe for all the files and adding file names as a column #
+# Get file names without the extension
+GTDB_gDNA_file_names <- tools::file_path_sans_ext(GTDB_gDNA_file_list)
+
+# Apply the function to each data frame and each file name
+GTDB_gDNA_combined_data <- purrr::map2_df(GTDB_gDNA_processed_data_list, GTDB_gDNA_file_names, ~cbind(.x, FileName = .y))
+
+######### ATCC moc com #######
+
+GTDB_ATCC_file_list <- list.files(pattern = "ATCC_.*_nrRep\\.paf$")
+
+# Read all files
+GTDB_ATCC_data_list <- map(GTDB_ATCC_file_list, ~read.delim(., header = F))
+
+# Apply the function to each data frame in the list
+GTDB_ATCC_processed_data_list <- lapply(GTDB_ATCC_data_list, process_data)
+
+# making one large dataframe for all the files and adding file names as a column #
+# Get file names without the extension
+GTDB_ATCC_file_names <- tools::file_path_sans_ext(GTDB_ATCC_file_list)
+
+# Apply the function to each data frame and each file name
+GTDB_ATCC_combined_data <- purrr::map2_df(GTDB_ATCC_processed_data_list, GTDB_ATCC_file_names, ~cbind(.x, FileName = .y))
+
+######### Zymo moc com #######
+
+GTDB_Zymo_file_list <- list.files(pattern = "Zymo_.*_nrRep\\.paf$")
+
+# Read all files
+GTDB_Zymo_data_list <- map(GTDB_Zymo_file_list, ~read.delim(., header = F))
+
+# Apply the function to each data frame in the list
+GTDB_Zymo_processed_data_list <- lapply(GTDB_Zymo_data_list, process_data)
+
+# making one large dataframe for all the files and adding file names as a column #
+# Get file names without the extension
+GTDB_Zymo_file_names <- tools::file_path_sans_ext(GTDB_Zymo_file_list)
+
+# Apply the function to each data frame and each file name
+GTDB_Zymo_combined_data <- purrr::map2_df(GTDB_Zymo_processed_data_list, GTDB_Zymo_file_names, ~cbind(.x, FileName = .y))
+
+######### Neg moc com #######
+
+GTDB_Neg_file_list <- list.files(pattern = "Neg_.*_nrRep\\.paf$")
+
+# Read all files
+GTDB_Neg_data_list <- map(GTDB_Neg_file_list, ~read.delim(., header = F))
+
+# Apply the function to each data frame in the list
+GTDB_Neg_processed_data_list <- lapply(GTDB_Neg_data_list, process_data)
+
+# making one large dataframe for all the files and adding file names as a column #
+# Get file names without the extension
+GTDB_Neg_file_names <- tools::file_path_sans_ext(GTDB_Neg_file_list)
+
+# Apply the function to each data frame and each file name
+GTDB_Neg_combined_data <- purrr::map2_df(GTDB_Neg_processed_data_list, GTDB_Neg_file_names, ~cbind(.x, FileName = .y))
+
+# rbinding the five sample together for the FANGORN GTDB files #
+GTDB_minimap <- rbind(GTDB_APC_combined_data, GTDB_gDNA_combined_data, GTDB_ATCC_combined_data, GTDB_Zymo_combined_data, GTDB_Neg_combined_data)
+
+# export the combined file #
+write.csv(GTDB_minimap, "/data/Food/analysis/R1150_biotransformation/RRN_mc_ONT/R_files/output_files_genus/GTDB_minimap_RRN_ONT_genus.csv", row.names = FALSE)
