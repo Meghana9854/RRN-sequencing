@@ -1,11 +1,17 @@
 ## Assigning taxonomy using QIIME2 classifiers ## # Performed only on PacBio data
 ## classifiers used: QIIME2 BLAST (QB), NB trained classifiers (QNBT), and VSEARCH exact match + sklearn (QVPSK)
 
-## option 1: using QIIME2 BLAST ##
-#mkdir ./9.tax_assign/qiime_output/rrn_DBv2/
-#mkdir ./9.tax_assign/qiime_output/rrn_DBv2/blast
-
-#for i in ./9.tax_assign/qiime_input/rrn_DBv2/*_otus.qza
+## I. option 1: using QIIME2 BLAST ##
+mkdir ./9.tax_assign/qiime_output/
+mkdir ./9.tax_assign/qiime_output/blast
+# depending on the database that is to be used provide the following: 
+# path to the location of the input file 
+input = ./9.tax_assign/qiime_input/database_name  #e.g. file path for GTDB-based chimera removed sequences would be ./9.tax_assign/qiime_input/GTDB (from step )
+# path to reference reads in qza format (QIIME2 imported)
+ref_read = ./rrn_database/database_seqs.qza       #e.g. file path for GTDB-based chimera removed sequences would be ./FANGORN/GTDB_seqs.qza  
+# path to reference reads in qza format (QIIME2 imported)
+ref_tax = ./rrn_databases/for_qiime/GTDB_taxonomy.qza #e.g. file path for GTDB-based chimera removed sequenc
+#for i in $input/*_otus.qza
 #do
 #qiime feature-classifier classify-consensus-blast \
   #--i-query "$i" \
