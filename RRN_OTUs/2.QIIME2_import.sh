@@ -50,7 +50,19 @@ for i in ./8.otu_binning/fasta_files/RefSeq/*fasta;
 do
 qiime tools import \
     --input-path "$i" \
-    --output-path ./9.tax_assign/qiime_input/GTDB/"$(basename "$i" .fasta)".qza \
+    --output-path ./9.tax_assign/qiime_input/RefSeq/"$(basename "$i" .fasta)".qza \
+    --type 'FeatureData[Sequence]' \
+    --input-format 'MixedCaseDNAFASTAFormat'
+done 
+
+#(ii) for option iii: rrnDB-based chimeras removed #
+mkdir ./8.otu_binning/fasta_files/rrnDB
+find ./8.otu_binning/RefSeq/ -name "*.fasta" -type f -exec cp {} ./8.otu_binning/fasta_files/RefSeq \;
+for i in ./8.otu_binning/fasta_files/RefSeq/*fasta; 
+do
+qiime tools import \
+    --input-path "$i" \
+    --output-path ./9.tax_assign/qiime_input/RefSeq/"$(basename "$i" .fasta)".qza \
     --type 'FeatureData[Sequence]' \
     --input-format 'MixedCaseDNAFASTAFormat'
 done 
