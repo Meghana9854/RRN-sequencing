@@ -54,3 +54,4 @@ qiime tools import \
     --type 'FeatureData[Sequence]' \
     --input-format 'MixedCaseDNAFASTAFormat'
 done 
+
