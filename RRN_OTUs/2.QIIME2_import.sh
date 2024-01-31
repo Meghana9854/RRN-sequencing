@@ -1,4 +1,4 @@
-# Using QIIME2 to taxonomically classify the OTU generated  # Performed only on PacBio data
+# Using QIIME2 to taxonomically classify the OTUs generated  # Performed only on PacBio data
 
 module load qiime2/2023.2
 source activate qiime2-2023.2 
@@ -27,6 +27,16 @@ do
      --output-path ./9.tax_assign/qiime_input/RefSeq/"$(basename "$i" .biomv210.biom)".qza
 done   
 
+#(iii) for option iii: rrnDB-based chimeras removed #
+mkdir ./9.tax_assign/qiime_input/rrnDB
+for i in ./8.otu_binning/biom_files_formatted/rrnDB/*.biomv210.biom; 
+do
+   qiime tools import \
+     --input-path "$i" \
+     --type 'FeatureTable[Frequency]' \
+     --input-format BIOMV210Format \
+     --output-path ./9.tax_assign/qiime_input/rrnDB/"$(basename "$i" .biomv210.biom)".qza
+done   
 
 ## 11.2. Importing the fasta files from step 9 into QIIME2 ## 
 mkdir ./8.otu_binning/fasta_files
@@ -55,15 +65,14 @@ qiime tools import \
     --input-format 'MixedCaseDNAFASTAFormat'
 done 
 
-#(ii) for option iii: rrnDB-based chimeras removed #
+#(iii) for option iii: rrnDB-based chimeras removed #
 mkdir ./8.otu_binning/fasta_files/rrnDB
-find ./8.otu_binning/RefSeq/ -name "*.fasta" -type f -exec cp {} ./8.otu_binning/fasta_files/RefSeq \;
-for i in ./8.otu_binning/fasta_files/RefSeq/*fasta; 
+find ./8.otu_binning/rrnDB/ -name "*.fasta" -type f -exec cp {} ./8.otu_binning/fasta_files/rrnDB \;
+for i in ./8.otu_binning/fasta_files/rrnDB/*fasta; 
 do
 qiime tools import \
     --input-path "$i" \
-    --output-path ./9.tax_assign/qiime_input/RefSeq/"$(basename "$i" .fasta)".qza \
+    --output-path ./9.tax_assign/qiime_input/rrnDB/"$(basename "$i" .fasta)".qza \
     --type 'FeatureData[Sequence]' \
     --input-format 'MixedCaseDNAFASTAFormat'
 done 
-
