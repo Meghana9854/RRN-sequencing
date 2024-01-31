@@ -1,31 +1,47 @@
 ## Assigning taxonomy using QIIME2 classifiers ## # Performed only on PacBio data
 ## classifiers used: QIIME2 BLAST (QB), NB trained classifiers (QNBT), and VSEARCH exact match + sklearn (QVPSK)
 
-## I. option 1: using QIIME2 BLAST ##
+## I. OPTION 1: using QIIME2 BLAST ##
 mkdir ./9.tax_assign/qiime_output/
 mkdir ./9.tax_assign/qiime_output/blast
-# depending on the database that is to be used provide the following: 
-# path to the location of the input file 
-input = ./9.tax_assign/qiime_input/database_name  #e.g. file path for GTDB-based chimera removed sequences would be ./9.tax_assign/qiime_input/GTDB (from step )
-# path to reference reads in qza format (QIIME2 imported)
-ref_read = ./rrn_database/database_seqs.qza       #e.g. file path for GTDB-based chimera removed sequences would be ./FANGORN/GTDB_seqs.qza  
-# path to reference reads in qza format (QIIME2 imported)
-ref_tax = ./rrn_databases/for_qiime/GTDB_taxonomy.qza #e.g. file path for GTDB-based chimera removed sequenc
-#for i in $input/*_otus.qza
-#do
-#qiime feature-classifier classify-consensus-blast \
-  #--i-query "$i" \
-  #--i-reference-reads /data/Food/analysis/R1150_biotransformation/other_rrn_databases/for_qiime/rrn_DBv2_seqs.qza \
-  #--i-reference-taxonomy /data/Food/analysis/R1150_biotransformation/other_rrn_databases/for_qiime/rrn_DBv2_taxonomy_qiime_formatted.qza \
-  #--o-classification ./9.tax_assign/qiime_output/rrn_DBv2/blast/"$(basename "$i" _otus.qza)"_rrnDBv2_BLAST.qza \
-  #--o-search-results ./9.tax_assign/qiime_output/rrn_DBv2/blast/"$(basename "$i" _otus.qza)"_out_rrnDBv2_BLAST.qza
-#done
 
-## option 2: using QIIME2 NB_training ##
-#mkdir ./9.tax_assign/qiime_output/rrn_DBv2/nb_trained
+# depending on the database that is to be used provide the following: 
+# path to the location of the input fasta file 
+input = ./9.tax_assign/qiime_input/database_name  #e.g. file path for GTDB-based chimera removed sequences would be ./9.tax_assign/qiime_input/GTDB (from step 11.2 in 2.QIIME2_import.sh)
+
+# path to reference reads in qza format (needs to be imported into QIIME2 prior to this step)
+ref_reads = ./rrn_database/database_seqs.qza       #e.g. file path for GTDB reference reads would be ./FANGORN/GTDB_seqs.qza  
+
+# path to reference reads in qza format (needs to be imported into QIIME2 prior to this step)
+ref_tax = ./rrn_databases/for_qiime/database_taxonomy.qza #e.g. file path for GTDB reference taxonomy would be ./rrn_databases/for_qiime/GTDB_taxonomy.qza
+
+for i in $input/*_otus.qza
+do
+qiime feature-classifier classify-consensus-blast \
+  --i-query "$i" \
+  --i-reference-reads $ref_reads \
+  --i-reference-taxonomy $ref_tax \
+  --o-classification ./9.tax_assign/qiime_output/blast/"$(basename "$i" _otus.qza)"_BLAST.qza \
+  --o-search-results ./9.tax_assign/qiime_output/blast/"$(basename "$i" _otus.qza)"_out_BLAST.qza
+done
+
+## II. OPTION 2: using QIIME2 NB_training ##
+mkdir ./9.tax_assign/qiime_output/nb_trained
+
+# first creating NB classifiers for the each of the RRN primer pairs and for each database
+
+# depending on the database that is to be used provide the following: 
+# path to the location of the input fasta file 
+input = ./9.tax_assign/qiime_input/database_name  #e.g. file path for GTDB-based chimera removed sequences would be ./9.tax_assign/qiime_input/GTDB (from step 11.2 in 2.QIIME2_import.sh)
+
+# path to reference reads in qza format (needs to be imported into QIIME2 prior to this step)
+ref_reads = ./rrn_database/database_seqs.qza       #e.g. file path for GTDB reference reads would be ./FANGORN/GTDB_seqs.qza  
+
+# path to reference reads in qza format (needs to be imported into QIIME2 prior to this step)
+ref_tax = ./rrn_databases/for_qiime/database_taxonomy.qza #e.g. file path for GTDB reference taxonomy would be ./rrn_databases/for_qiime/GTDB_taxonomy.qza
 
 ## 1. pair A: 519F-2428R ##
-for i in ./9.tax_assign/qiime_input/rrn_DBv2/519F_2428R_rrnDBv2_*_otus.qza
+for i in $input/519F_2428R_*_otus.qza
 do
 qiime feature-classifier classify-sklearn \
   --i-classifier /data/Food/analysis/R1150_biotransformation/other_rrn_databases/for_qiime/NB_classifers/classifier_rrn_DBv2_5L_qiime_formatted.qza \
