@@ -309,9 +309,9 @@ rm ./8.otu_binning/biom_files_formatted/RefSeq/*otutab.biom
 mkdir ./8.otu_binning/biom_files_formatted/rrn_DB
 ## copying the biom files to another directory before converting ##
 find ./8.otu_binning/rrn_DBv2/ -name "*.biom" -type f -exec cp {} ./8.otu_binning/biom_files_formatted/rrn_DB \;
-for i in ./8.otu_binning/biom_files_formatted/rrn_DBv2/*.biom
+for i in ./8.otu_binning/biom_files_formatted/rrn_DB/*.biom
 do
   biom convert -i "$i" -o "${i%.*}.biomv210.biom" --table-type="OTU table" --to-hdf5
 done
-rm ./8.otu_binning/biom_files_formatted/rrn_DBv2/*otutab.biom
+rm ./8.otu_binning/biom_files_formatted/rrn_DB/*otutab.biom
 module unload biom/2.7.1
