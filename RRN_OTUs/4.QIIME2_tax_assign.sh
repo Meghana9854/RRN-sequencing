@@ -44,7 +44,7 @@ qiime feature-classifier classify-sklearn \
   --o-classification ./9.tax_assign/qiime_output/nb_trained/"$(basename "$i" _otus.qza)"_NBt.qza
 done
 
-## 2. Pair B: 27Fv2-2241R ##
+## 2. pair B: 27Fv2-2241R ##
 for i in $input/27Fv2_2241R_*_otus.qza
 do
 qiime feature-classifier classify-sklearn \
@@ -53,7 +53,7 @@ qiime feature-classifier classify-sklearn \
   --o-classification ./9.tax_assign/qiime_output/nb_trained/"$(basename "$i" _otus.qza)"_NBt.qza
 done
 
-## 3. Pair C: 27Fv2-2428R ##
+## 3. pair C: 27Fv2-2428R ##
 for i in $input/27Fv2_2428R_*_otus.qza
 do
 qiime feature-classifier classify-sklearn \
@@ -98,7 +98,7 @@ qiime feature-classifier classify-hybrid-vsearch-sklearn \
   --o-classification ./9.tax_assign/qiime_output/vsearch_plus_sklearn/"$(basename "$i" .qza)"_vpsk.qza
 done
 
-## 2. PairB 27Fv2-2241R ##
+## 2. pair B: 27Fv2-2241R ##
 for i in $input/27Fv2_2241R_*_otus.qza
 do
 qiime feature-classifier classify-hybrid-vsearch-sklearn \
@@ -109,7 +109,7 @@ qiime feature-classifier classify-hybrid-vsearch-sklearn \
   --o-classification ./9.tax_assign/qiime_output/vsearch_plus_sklearn/"$(basename "$i" .qza)"_vpsk.qza
 done
 
-## 3. PairC 27Fv2-2428R ##
+## 3. pair C: 27Fv2-2428R ##
 for i in $input/27Fv2_2428R_rrnDBv2_*_otus.qza
 do
 qiime feature-classifier classify-hybrid-vsearch-sklearn \
