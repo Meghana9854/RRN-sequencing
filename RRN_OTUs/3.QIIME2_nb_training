@@ -5,14 +5,16 @@
 ## Pair A: 519F-2428R, Pair B: 27Fv2-2241R, Pair C: 27Fv2-2428R ## https://melbourne.figshare.com/articles/dataset/Fangorn_rrn_Database/20086916?file=37794402 ##
 
 ## making nb trained classifiers for the 519F-2241R primer pair for the FANGORN-GTDB and FANGORN-RefSeq databases ##
+mkdir ./nb_classifiers
 ## first provide the file paths for the following:
-# path to location of database ssequneces (needs to be imported into QIIME2 prior to this step)
+# path to location of database sequneces (needs to be imported into QIIME2 prior to this step)
 db_seqs = ./qiime_fangorn/database_seqs.qza  #e.g. file path for the FANGORN-GTDB database ./qiime_fangorn/GTDB_seqs.qza
-# 
+# path to location of sequneces (needs to be imported into QIIME2 prior to this step)
+db_seqs = ./qiime_fangorn/database_seqs.qza  #e.g. file path for the FANGORN-GTDB database ./qiime_fangorn/GTDB_seqs.qza
 
 ## for Pair D: 519F-2241R ##
 #qiime feature-classifier extract-reads \
-      #--i-sequences /data/Food/analysis/R1150_biotransformation/RRN_mc_PB/2.new_vsearch/qiime_fangorn/GTDB_NR_nrrep_seqs.qza \
+      #--i-sequences $db_seqs \
       #--p-f-primer CCTACGGGNGGCWGCAG \
       #--p-r-primer GACTACHVGGGTATCTAATCC \
       #--p-min-length 350 \
