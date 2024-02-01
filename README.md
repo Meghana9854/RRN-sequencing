@@ -1,5 +1,2 @@
-# RRN operon sequencing #
-This repository contains pipelines (more to be added) for QC and analysis of long read amplicon data for the RRN (16S-ITS-23S) operon generated through PacBio sequencing. The pipeline uses vsearch for OTU clustering and qiime2 for taxonomic assignment of the OTUs generated.  
-An RRN specfic reference database called FANGORN has been used for taxonomic classification, which has been development by Calum Walsh. More details of which can be found on https://github.com/cazzlewazzle89/FANGORN. 
-
-#this repository is still under development#
+# RRN sequencing #
+This repository conatins scripts used for taxonomically classifying RRN reads using two approaches: (i) direct alignment with Minimap2 (refer RRN_minimap2), and (ii) OTU clustering utilising vsearch, followed by classification via QIIME2 (refer RRN_OTUs). Additionally, it includes scripts for the classification of v3-v4 reads through OTU clustering with vsearch and subsequent QIIME2 classification (refer v3-v4_Illumina).
