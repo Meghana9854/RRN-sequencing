@@ -1,26 +1,27 @@
 ## Making the NB trained classifiers for each of the RRN primers and for each of the databases ##
 
-## for FANGORN-GTDB and FANGORN-RefSeq databases ##
-## nb trained classifiers for the the following primers were downloaded for the FANGORN-GTDB and FANGORN-RefSeq databases ##
-## Pair A: 519F-2428R, Pair B: 27Fv2-2241R, Pair C: 27Fv2-2428R ## https://melbourne.figshare.com/articles/dataset/Fangorn_rrn_Database/20086916?file=37794402 ##
+## using existing nb trained classifiers for FANGORN-GTDB and FANGORN-RefSeq databases for the below:
+## Pair A: 519F-2428R, Pair B: 27Fv2-2241R, Pair C: 27Fv2-2428R, downloaded from https://melbourne.figshare.com/articles/dataset/Fangorn_rrn_Database/20086916?file=37794402 ##
 
-## making nb trained classifiers for the 519F-2241R primer pair for the FANGORN-GTDB and FANGORN-RefSeq databases ##
-mkdir ./nb_classifiers
+## making nb trained classifiers for the following: 
+## (i) 519F-2241R primer pair for the FANGORN-GTDB and FANGORN-RefSeq databases
+## (ii) all four RRN primers for the rrnDB database 
+
 ## first provide the file paths for the following:
-# path to location of database sequneces (needs to be imported into QIIME2 prior to this step)
-db_seqs = ./qiime_fangorn/database_seqs.qza  #e.g. file path for the FANGORN-GTDB database ./qiime_fangorn/GTDB_seqs.qza
-# path to location of sequneces (needs to be imported into QIIME2 prior to this step)
-db_seqs = ./qiime_fangorn/database_seqs.qza  #e.g. file path for the FANGORN-GTDB database ./qiime_fangorn/GTDB_seqs.qza
+# path to location of file with reference reads (needs to be imported into QIIME2 prior to this step)
+ref_reads = ./qiime_fangorn/database_seqs.qza  #e.g. file path for the FANGORN-GTDB reference reads./qiime_fangorn/GTDB_seqs.qza
+# path to location of filke with taxonomy (needs to be imported into QIIME2 prior to this step)
+ref_tax = ./qiime_fangorn/database_taxonomy.qza  #e.g. file path for the FANGORN-GTDB taxonomy file ./qiime_fangorn/GTDB_taxonomy.qza
 
-## for Pair D: 519F-2241R ##
-#qiime feature-classifier extract-reads \
-      #--i-sequences $db_seqs \
-      #--p-f-primer CCTACGGGNGGCWGCAG \
-      #--p-r-primer GACTACHVGGGTATCTAATCC \
-      #--p-min-length 350 \
-      #--o-reads /data/Food/analysis/R1150_biotransformation/Fangorn_db/NB_Classifiers/reads_v3_v4_GTDB_NR.qza
+mkdir ./nb_classifiers
+qiime feature-classifier extract-reads \
+      --i-sequences $ref_reads \
+      --p-f-primer CAGCMGCCGCGGTAA \   
+      --p-r-primer ACCRCCCCAGTHAAACT \
+      --p-min-length 350 \
+      --o-reads ./nb_classifiers/reads_pairD.qza
       
 qiime feature-classifier fit-classifier-naive-bayes \
-  --i-reference-reads /data/Food/analysis/R1150_biotransformation/Fangorn_db/NB_Classifiers/reads_v3_v4_GTDB_NR.qza \
-  --i-reference-taxonomy /data/Food/analysis/R1150_biotransformation/RRN_mc_PB/2.new_vsearch/qiime_fangorn/GTDB_NR_taxonomy.qza \
-  --o-classifier /data/Food/analysis/R1150_biotransformation/Fangorn_db/NB_Classifiers/classifier_v3_v4_GTDB_NR.qza
+  --i-reference-reads ./nb_classifiers/reads_pairD.qza \
+  --i-reference-taxonomy $ref_tax \
+  --o-classifier ./nb_Classifiers/classifier_pairD.qza
