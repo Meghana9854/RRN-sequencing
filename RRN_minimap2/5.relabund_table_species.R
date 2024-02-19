@@ -40,21 +40,25 @@ process_data <- function(df) {
   # Summarise the data #
   # finds the maximum value of the AS variable for each unique combination of Query, Tax, Matching, and MapQ #
   # essentially picks the highest or the first when ASmax is also the same for Query that have same Matching, Tax and MapQ values #
+  # the higher the AS score the better the alignment # giving you a table with of the highest AS scores for each Query, Tax, Matching and MapQ combination #
   df <- summaryBy(AS ~ Query + Tax + Matching + MapQ, data=df, FUN=max)
   
-  # selecting the Query-Matches with the highest MapQ value #
+  # selecting the Query matches with the highest MapQ value #
+  # when there are multiple alignmnets of equal quality Map=0. Higher values indicate unique and better quality alignments, so picking those #
   df <- df %>%
     group_by(Query) %>%
     slice_max(MapQ) %>%
     ungroup()
   
-  # selecting the Query-Matches with the highest AS.max value #
+  # selecting the Query matches with the highest AS.max value #
+  # when MapQ has the same values for all the hits in the above section and so top alignments cannot be picked, selection is done based on maximum AS score #
   df <- df %>%
     group_by(Query) %>%
     slice_max(AS.max) %>%
     ungroup()
-  
-  # selecting the Query-Matches with the highest Matching value #
+
+  # where multiple Query-Tax matches still exist #
+  # selecting the Query matches with the highest Matching value #
     df <- df %>%
     group_by(Query) %>%
     slice_max(Matching) %>%
