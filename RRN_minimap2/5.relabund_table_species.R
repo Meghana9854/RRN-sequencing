@@ -17,8 +17,7 @@ colnames(GTDB_tax) <- c("op", "tax")
 
 # making and defining a function to process each data frame
 process_data <- function(df) {
-   # Set column names 
-  col_names <- c("Query", "Q_length", "Q_start", "Q_end", "Strand", "op", "T_length", "T_start", 
+col_names <- c("Query", "Q_length", "Q_start", "Q_end", "Strand", "op", "T_length", "T_start", 
                  "T_end", "N_res_matches", "Align_block", "MapQ", "NM", "ms", "AS", "nn", "P_S") 
   
   df <- df[,1:17] %>%
@@ -29,67 +28,120 @@ process_data <- function(df) {
     ) %>%
     select(Query, op, N_res_matches, Align_block, AS, MapQ, per.match) # name op as match instead for mirror
   
-  # merge df with the taxonomy file
-  df <- left_join(df, GTDB_tax, by ="op")  #change to corresponding tax database name
-  # changing column names for per.match to Matching and the adding the column name Tax to the merged tax co
+  # merge df with the taxonomy file #
+  df <- left_join(df, GTDB_tax, by ="op") # change to corresponding tax database name
+  # changining column names for per.match to Matching and the adding the column name Tax to the merged tax co #
   colnames(df)<-c("Query","op","N_res_matches","Align_block","AS","MapQ","Matching","Tax")
   
   # Filter rows based on Align_block
   df <- subset(df, Align_block > 2999)
   
-  # Summarise the data #
-  # finds the maximum value of the AS variable for each unique combination of Query, Tax, Matching, and MapQ #
-  # essentially picks the highest or the first when ASmax is also the same for Query that have same Matching, Tax and MapQ values #
-  # the higher the AS score the better the alignment # giving you a table with of the highest AS scores for each Query, Tax, Matching and MapQ combination #
-  df <- summaryBy(AS ~ Query + Tax + Matching + MapQ, data=df, FUN=max)
+  # getting all the unique hits out for a query sequence
+  df_uni <- df %>% filter(MapQ > 0)
+  df_uni_ids <- df_uni$Query
   
-  # selecting the Query matches with the highest MapQ value #
-  # when there are multiple alignmnets of equal quality Map=0. Higher values indicate unique and better quality alignments, so picking those #
-  df <- df %>%
-    group_by(Query) %>%
-    slice_max(MapQ) %>%
-    ungroup()
+  # filtering out all the query sequneces with unique hits from df that alos have non unique hits for them
+  df_uni_mapG0 <- df %>% filter(!(Query %in% df_uni_ids & MapQ == 0))
+  # in the non unique hits first filter by AS the ones with the highest alignment score is selected
+  # first getting out all the query that have MapQ = 0
+  df_map0 <- df_uni_mapG0 %>% filter(MapQ == 0)
   
-  # selecting the Query matches with the highest AS.max value #
-  # when MapQ has the same values for all the hits in the above section and so top alignments cannot be picked, selection is done based on maximum AS score #
-  df <- df %>%
-    group_by(Query) %>%
-    slice_max(AS.max) %>%
-    ungroup()
-
-  # where multiple Query-Tax matches still exist #
-  # selecting the Query matches with the highest Matching value #
-    df <- df %>%
-    group_by(Query) %>%
-    slice_max(Matching) %>%
-    ungroup()
-    
-  # when MapQ, AS.max, and matching are all the same, select the first row of Query with duplicate values #
-  df <- df[!duplicated(df$Query), ]
-  
-  # Clean and organise the table 
-  df <- df %>%
+  ## now looking at the the queries with multiple hits so MapQ = 0 with the AS score are different i.e. there is one max score comapred to the others,     #selecting based on that max 
+  df_map0_dAS <- df_map0 %>% 
+  group_by(Query) %>%
+  slice_max(AS, n = 1) %>%
+  ungroup() # This will leave the rows that have identical AS for a query
+  # get only the the one hist when mapQ = 0 and AS is different for one query
+  df_map0_dAS2 <- df_map0_dAS %>%
+  group_by(Query, AS) %>%
+  filter(!(n() > 1)) %>%
+  ungroup()
+  # rbind the unique hit where mapq > 0 (uni) and for the hits where mapQ = 0 but AS was diff with one higher than the other (dAS2)
+  df_uni_dAS2 <- rbind(df_uni, df_map0_dAS2)
+  # cleaning up the tax column 
+  df_uni_dAS2 <- df_uni_dAS2 %>%
     # Split the Taxon column into separate taxonomic levels
     separate(Tax, into=c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"), sep="\\|") %>%
     # Remove the prefix from each taxonomic level
-    mutate_at(vars(Kingdom:Species), ~substr(., 4, nchar(.))) %>%
-    # getting counts for all the alignments at species level #
-    group_by(Species) %>%
-    summarise(Counts = n())
+    mutate_at(vars(Kingdom:Species), ~substr(., 4, nchar(.))) 
+    # removing the _letters in species names
+    df_uni_dAS2$Species <- gsub("_[A-Z]", "", df_uni_dAS2$Species) 
+    # adding an lca column 
+    df_uni_dAS2$lca <- df_uni_dAS2$Species 
+  
+  ## pull out the reads that have equal AS scores, i.e. multiple rows for the same AS
+  df_map0_sAS <- df_map0_dAS %>%
+  group_by(Query, AS) %>%
+  filter(n() > 1) %>%
+  ungroup()
+  # cleaning up the tax column 
+  df_map0_sAS <- df_map0_sAS %>%
+    # Split the Taxon column into separate taxonomic levels
+    separate(Tax, into=c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"), sep="\\|") %>%
+    # Remove the prefix from each taxonomic level
+    mutate_at(vars(Kingdom:Species), ~substr(., 4, nchar(.))) 
+  # if the species is the same for the mutiple hits keep only the first entry
+    df_map0_sAS_sp <- df_map0_sAS %>%
+    group_by(Query, Species) %>%
+    slice_head(n = 1) %>%
+    ungroup()  # so queries with (i) mapQ = 0 and same AS that all have hits to the same species only the first hit is taken, and (ii) all hits for mapQ = 0 and same AS that have different hits at species level as also kept
+    ## identifying (i) and (ii) from df_min0_sAS_sp and then adding lca 
+    # (i) pulling out the hits that have mapQ = 0 and same AS that all have hits to the same species only the first hit has been taken
+    df_map0_sAS_1sp <- df_map0_sAS_sp %>%
+    group_by(Query) %>%
+    filter(!(n() > 1)) %>%
+    ungroup()
+    # adding an lca column to it 
+    df_map0_sAS_1sp$lca <- df_map0_sAS_1sp$Species
+    # (ii) pulling out hits for mapQ = 0 and same AS that have different hits at species level as also kept
+    df_map0_sAS_msp <- df_map0_sAS_sp %>%
+    group_by(Query) %>%
+    filter(n() > 1) %>%
+    ungroup()
+    # removing the _letters in species names
+    df_map0_sAS_msp$Species <- gsub("_[A-Z]", "", df_map0_sAS_msp$Species) 
+    # now lets add the lowest common acestor for them 
+    df_map0_sAS_msp <- df_map0_sAS_msp %>%
+    group_by(Query) %>%
+    mutate(
+    lca = case_when(
+      n_distinct(Genus) == 1 ~ Genus,
+      n_distinct(Family) == 1 ~ Family,
+      n_distinct(Order) == 1 ~ Order,
+      n_distinct(Class) == 1 ~ Class,
+      n_distinct(Phylum) == 1 ~ Phylum,
+      n_distinct(Kingdom) == 1 ~ Kingdom,
+      TRUE ~ NA_character_  # If no common taxonomic level is found
+    )
+  ) %>%
+  ungroup() %>%
+  # keep only one hit now that lca has been added for muyltiple hits for one query
+  group_by(Query) %>%
+  slice_head(n = 1) %>%
+  ungroup()
+    # rbinding the map0_sAS dups nad no dups 
+    df_m0_sAS <- rbind(df_map0_sAS_1sp, df_map0_sAS_msp)
+    
+    ## rbinding it all now 
+    df2 <- rbind(df_uni_dAS2, df_m0_sAS)
+    
+# getting counts for all the alignments at species level #
+    df2 <- df2 %>% group_by(lca) %>%
+          summarise(Counts = n())
   
   # Reshape dataframe to wide format
-  df <- df %>%
-    pivot_wider(names_from = Species, values_from = Counts, values_fill = 0)
+  df2 <- df2 %>%
+    pivot_wider(names_from = lca, values_from = Counts, values_fill = 0)
   
   ## changing counts to relative abundance ##
-  df <- df/rowSums(df)*100
-  rowSums(df) ## to check if each sample adds up to a 100 ##
+  df2 <- df2/rowSums(df2)*100
+  rowSums(df2) ## to check if each sample adds up to a 100 ##
   
   # Convert tf from wide back to long format
-  df <- df %>%
-    pivot_longer(cols = everything(), names_to = "Species", values_to = "Rel_abundance")
-  
-  return(df)
+  df2 <- df2 %>%
+    pivot_longer(cols = everything(), names_to = "lca_sp", values_to = "Rel_abundance")
+    
+return(df2)
 }
 
 ##########################################
@@ -207,7 +259,7 @@ colnames(RefSeq_tax) <- c("op", "tax")
 
 # making and defining a function to process each data frame
 process_data <- function(df) {
-  # Set column names 
+  # Set column names ## NOTE: name op as match instead for mirror ##
   col_names <- c("Query", "Q_length", "Q_start", "Q_end", "Strand", "op", "T_length", "T_start", 
                  "T_end", "N_res_matches", "Align_block", "MapQ", "NM", "ms", "AS", "nn", "P_S") 
   
@@ -227,58 +279,113 @@ process_data <- function(df) {
   # Filter rows based on Align_block
   df <- subset(df, Align_block > 2999)
   
-  # Summarise the data #
-  # finds the maximum value of the AS variable for each unique combination of Query, Tax, Matching, and MapQ #
-  # essentially picks the highest or the first when ASmax is also the same for Query that have same Matching, Tax and MapQ values #
-  df <- summaryBy(AS ~ Query + Tax + Matching + MapQ, data=df, FUN=max)
+# getting all the unique hits out for a query sequence
+  df_uni <- df %>% filter(MapQ > 0)
+  df_uni_ids <- df_uni$Query
   
-  # selecting the Query-Matches with the highest MapQ value #
-  df <- df %>%
-    group_by(Query) %>%
-    slice_max(MapQ) %>%
-    ungroup()
+  # filtering out all the query sequneces with unique hits from df that alos have non unique hits for them
+  df_uni_mapG0 <- df %>% filter(!(Query %in% df_uni_ids & MapQ == 0))
+  # in the non unique hits first filter by AS the ones with the highest alignment score is selected
+  # first getting out all the query that have MapQ = 0
+  df_map0 <- df_uni_mapG0 %>% filter(MapQ == 0)
   
-  # selecting the Query-Matches with the highest AS.max value #
-  df <- df %>%
-    group_by(Query) %>%
-    slice_max(AS.max) %>%
-    ungroup()
-  
-  # selecting the Query-Matches with the highest Matching value #
-    df <- df %>%
-    group_by(Query) %>%
-    slice_max(Matching) %>%
-    ungroup()
-    
-  # when MapQ, AS.max, and matching are all te same, select the first row of Query with duplicate values #
-  df <- df[!duplicated(df$Query), ]
-  
-  #### for FANGORN RefSeq #####
-  # Clean and organise the table 
-  df <- df %>%
+  ## now looking at the the queries with multiple hits so MapQ = 0 with the AS score are different i.e. there is one max score comapred to the others,     #selecting based on that max 
+  df_map0_dAS <- df_map0 %>% 
+  group_by(Query) %>%
+  slice_max(AS, n = 1) %>%
+  ungroup() # This will leave the rows that have identical AS for a query
+  # get only the the one hist when mapQ = 0 and AS is different for one query
+  df_map0_dAS2 <- df_map0_dAS %>%
+  group_by(Query, AS) %>%
+  filter(!(n() > 1)) %>%
+  ungroup()
+  # rbind the unique hit where mapq > 0 (uni) and for the hits where mapQ = 0 but AS was diff with one higher than the other (dAS2)
+  df_uni_dAS2 <- rbind(df_uni, df_map0_dAS2)
+  # cleaning up the tax column 
+  df_uni_dAS2 <- df_uni_dAS2 %>%
     # Split the Taxon column into separate taxonomic levels
     separate(Tax, into=c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"), sep="\\|") %>%
     # Remove the prefix from each taxonomic level
-    mutate_at(vars(Kingdom:Species), ~substr(., 4, nchar(.))) %>%
-    # getting counts for all the alignments at species level #
-    group_by(Species) %>%
-    summarise(Counts = n())
+    mutate_at(vars(Kingdom:Species), ~substr(., 4, nchar(.))) 
+    # removing the _letters in species names
+    df_uni_dAS2$Species <- gsub("_[A-Z]", "", df_uni_dAS2$Species) 
+    # adding an lca column 
+    df_uni_dAS2$lca <- df_uni_dAS2$Species 
+  
+  ## pull out the reads that have equal AS scores, i.e. multiple rows for the same AS
+  df_map0_sAS <- df_map0_dAS %>%
+  group_by(Query, AS) %>%
+  filter(n() > 1) %>%
+  ungroup()
+  # cleaning up the tax column 
+  df_map0_sAS <- df_map0_sAS %>%
+    # Split the Taxon column into separate taxonomic levels
+    separate(Tax, into=c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"), sep="\\|") %>%
+    # Remove the prefix from each taxonomic level
+    mutate_at(vars(Kingdom:Species), ~substr(., 4, nchar(.))) 
+  # if the species is the same for the mutiple hits keep only the first entry
+    df_map0_sAS_sp <- df_map0_sAS %>%
+    group_by(Query, Species) %>%
+    slice_head(n = 1) %>%
+    ungroup()  # so queries with (i) mapQ = 0 and same AS that all have hits to the same species only the first hit is taken, and (ii) all hits for mapQ = 0 and same AS that have different hits at species level as also kept
+    ## identifying (i) and (ii) from df_min0_sAS_sp and then adding lca 
+    # (i) pulling out the hits that have mapQ = 0 and same AS that all have hits to the same species only the first hit has been taken
+    df_map0_sAS_1sp <- df_map0_sAS_sp %>%
+    group_by(Query) %>%
+    filter(!(n() > 1)) %>%
+    ungroup()
+    # adding an lca column to it 
+    df_map0_sAS_1sp$lca <- df_map0_sAS_1sp$Species
+    # (ii) pulling out hits for mapQ = 0 and same AS that have different hits at species level as also kept
+    df_map0_sAS_msp <- df_map0_sAS_sp %>%
+    group_by(Query) %>%
+    filter(n() > 1) %>%
+    ungroup()
+    # removing the _letters in species names
+    df_map0_sAS_msp$Species <- gsub("_[A-Z]", "", df_map0_sAS_msp$Species) 
+    # now lets add the lowest common acestor for them 
+    df_map0_sAS_msp <- df_map0_sAS_msp %>%
+    group_by(Query) %>%
+    mutate(
+    lca = case_when(
+      n_distinct(Genus) == 1 ~ Genus,
+      n_distinct(Family) == 1 ~ Family,
+      n_distinct(Order) == 1 ~ Order,
+      n_distinct(Class) == 1 ~ Class,
+      n_distinct(Phylum) == 1 ~ Phylum,
+      n_distinct(Kingdom) == 1 ~ Kingdom,
+      TRUE ~ NA_character_  # If no common taxonomic level is found
+    )
+  ) %>%
+  ungroup() %>%
+  # keep only one hit now that lca has been added for muyltiple hits for one query
+  group_by(Query) %>%
+  slice_head(n = 1) %>%
+  ungroup()
+    # rbinding the map0_sAS dups nad no dups 
+    df_m0_sAS <- rbind(df_map0_sAS_1sp, df_map0_sAS_msp)
+    
+    ## rbinding it all now 
+    df2 <- rbind(df_uni_dAS2, df_m0_sAS)
+    
+# getting counts for all the alignments at species level #
+    df2 <- df2 %>% group_by(lca) %>%
+          summarise(Counts = n())
   
   # Reshape dataframe to wide format
-  df <- df %>%
-    pivot_wider(names_from = Species, values_from = Counts, values_fill = 0)
+  df2 <- df2 %>%
+    pivot_wider(names_from = lca, values_from = Counts, values_fill = 0)
   
   ## changing counts to relative abundance ##
-  df <- df/rowSums(df)*100
-  rowSums(df) ## to check if each sample adds up to a 100 ##
+  df2 <- df2/rowSums(df2)*100
+  rowSums(df2) ## to check if each sample adds up to a 100 ##
   
   # Convert tf from wide back to long format
-  df <- df %>%
-    pivot_longer(cols = everything(), names_to = "Species", values_to = "Rel_abundance")
-  
-  return(df)
+  df2 <- df2 %>%
+    pivot_longer(cols = everything(), names_to = "lca_sp", values_to = "Rel_abundance")
+    
+return(df2)
 }
-
 ##########################################
 ### FANGORN_RefSeq_RRN - minimap files ###
 ##########################################
@@ -395,7 +502,7 @@ rrnDB_tax <- rrnDB_tax %>% select("op", "Species")
 
 # making and defining a function to process each data frame
 process_data <- function(df) {
-  # Set column names
+  # Set column names ## NOTE: name op as match instead for mirror ##
   col_names <- c("Query", "Q_length", "Q_start", "Q_end", "Strand", "op", "T_length", "T_start", 
                  "T_end", "N_res_matches", "Align_block", "MapQ", "NM", "ms", "AS", "nn", "P_S") 
   
@@ -415,55 +522,112 @@ process_data <- function(df) {
   # Filter rows based on Align_block
   df <- subset(df, Align_block > 2999)
   
-  # Summarise the data #
-  # finds the maximum value of the AS variable for each unique combination of Query, Tax, Matching, and MapQ #
-  # essentially picks the highest or the first when ASmax is also the same for Query that have same Matching, Tax and MapQ values #
-  df <- summaryBy(AS ~ Query + Tax + Matching + MapQ, data=df, FUN=max)
+  # getting all the unique hits out for a query sequence
+  df_uni <- df %>% filter(MapQ > 0)
+  df_uni_ids <- df_uni$Query
   
-  # selecting the Query-Matches with the highest MapQ value #
-  df <- df %>%
+  # filtering out all the query sequneces with unique hits from df that alos have non unique hits for them
+  df_uni_mapG0 <- df %>% filter(!(Query %in% df_uni_ids & MapQ == 0))
+  # in the non unique hits first filter by AS the ones with the highest alignment score is selected
+  # first getting out all the query that have MapQ = 0
+  df_map0 <- df_uni_mapG0 %>% filter(MapQ == 0)
+  
+  ## now looking at the the queries with multiple hits so MapQ = 0 with the AS score are different i.e. there is one max score comapred to the others,     #selecting based on that max 
+  df_map0_dAS <- df_map0 %>% 
+  group_by(Query) %>%
+  slice_max(AS, n = 1) %>%
+  ungroup() # This will leave the rows that have identical AS for a query
+  # get only the the one hist when mapQ = 0 and AS is different for one query
+  df_map0_dAS2 <- df_map0_dAS %>%
+  group_by(Query, AS) %>%
+  filter(!(n() > 1)) %>%
+  ungroup()
+  # rbind the unique hit where mapq > 0 (uni) and for the hits where mapQ = 0 but AS was diff with one higher than the other (dAS2)
+  df_uni_dAS2 <- rbind(df_uni, df_map0_dAS2)
+  # adding an lca column 
+  df_uni_dAS2$lca <- df_uni_dAS2$Tax 
+  
+  ## pull out the reads that have equal AS scores, i.e. multiple rows for the same AS
+  df_map0_sAS <- df_map0_dAS %>%
+  group_by(Query, AS) %>%
+  filter(n() > 1) %>%
+  ungroup()
+  # if the species is the same for the mutiple hits keep only the first entry
+    df_map0_sAS_sp <- df_map0_sAS %>%
+    group_by(Query, Tax) %>%
+    slice_head(n = 1) %>%
+    ungroup()  # so queries with (i) mapQ = 0 and same AS that all have hits to the same species only the first hit is taken, and (ii) all hits for mapQ = 0 and same AS that have different hits at species level as also kept
+    ## identifying (i) and (ii) from df_min0_sAS_sp and then adding lca 
+    # (i) pulling out the hits that have mapQ = 0 and same AS that all have hits to the same species only the first hit has been taken
+    df_map0_sAS_1sp <- df_map0_sAS_sp %>%
     group_by(Query) %>%
-    slice_max(MapQ) %>%
+    filter(!(n() > 1)) %>%
     ungroup()
-  
-  # selecting the Query-Matches with the highest AS.max value #
-  df <- df %>%
+    # formating tax a bit
+    df_map0_sAS_1sp <- df_map0_sAS_1sp %>%
+    separate(Tax, into = c("Genus", "Species"), sep = "_", remove = F) %>%  # Separate the 'Tax' column into 'Genus' and 'Species'
+    mutate(Tax = gsub("_", " ", Tax)) %>%  # Remove underscores from the 'Species' column if there are any left
+    select(-Species)
+    # adding an lca column to it 
+    df_map0_sAS_1sp$lca <- df_map0_sAS_1sp$Tax
+    # (ii) pulling out hits for mapQ = 0 and same AS that have different hits at species level as also kept
+    df_map0_sAS_msp <- df_map0_sAS_sp %>%
     group_by(Query) %>%
-    slice_max(AS.max) %>%
-    ungroup()
-  
-  # selecting the Query-Matches with the highest Matching value #
-    df <- df %>%
+    filter(n() > 1) %>%
+    ungroup() 
+    # now lets add the lowest common acestor for them 
+    # first separting tax column to genus and species 
+    df_map0_sAS_msp <- df_map0_sAS_msp %>%
+    separate(Tax, into = c("Genus", "Species"), sep = "_", remove = F) %>%  # Separate the 'Tax' column into 'Genus' and 'Species'
+    mutate(Tax = gsub("_", " ", Tax)) %>%  # Remove underscores from the 'Species' column if there are any left
+    select(-Species)
+    # low adding at LCA
+    df_map0_sAS_msp <- df_map0_sAS_msp %>%
     group_by(Query) %>%
-    slice_max(Matching) %>%
-    ungroup()
+    mutate(
+    lca = case_when(
+      n_distinct(Genus) == 1 ~ Genus,
+      TRUE ~ NA_character_  # If no common taxonomic level is found
+    )
+  ) %>%
+  ungroup() %>%
+  # keep only one hit now that lca has been added for muyltiple hits for one query
+  group_by(Query) %>%
+  slice_head(n = 1) %>%
+  ungroup()
+    # rbinding the map0_sAS dups and no dups 
+    df_m0_sAS <- rbind(df_map0_sAS_1sp, df_map0_sAS_msp)
   
-  # when MapQ, AS.max, and matching are all te same, select the first row of Query with duplicate values #
-  df <- df[!duplicated(df$Query), ]
+  ## rbinding it all now 
+  # before that
+  df_uni_dAS2 <- df_uni_dAS2 %>%
+    separate(Tax, into = c("Genus", "Species"), sep = "_", remove = F) %>%  # Separate the 'Tax' column into 'Genus' and 'Species'
+    mutate(Tax = gsub("_", " ", Tax)) %>%  # Remove underscores from the 'Species' column if there are any left
+    mutate(lca = gsub("_", " ", lca)) %>%
+    select(-Species)
+    # no binding it all
+    df2 <- rbind(df_uni_dAS2, df_m0_sAS)
   
-  #### for rrn_DBv2 #####
+  #### for rrn_DBv2 and mirror #####
   # Clean and organise the table
-  df <- df %>%
+  df2 <- df2 %>%
   # getting counts for all the alignments at species level #
-  group_by(Tax) %>%
+  group_by(lca) %>%
     summarise(Counts = n())
   
   # Reshape dataframe to wide format
-  df <- df %>%
-    pivot_wider(names_from = Tax, values_from = Counts, values_fill = 0)
+  df2 <- df2 %>%
+    pivot_wider(names_from = lca, values_from = Counts, values_fill = 0)
   
   ## changing counts to relative abundance ##
-  df <- df/rowSums(df)*100
-  rowSums(df) ## to check if each sample adds up to a 100 ##
+  df2 <- df2/rowSums(df2)*100
+  rowSums(df2) ## to check if each sample adds up to a 100 ##
   
   # Convert tf from wide back to long format
-  df <- df %>%
-    pivot_longer(cols = everything(), names_to = "Species", values_to = "Rel_abundance")
+  df2 <- df2 %>%
+    pivot_longer(cols = everything(), names_to = "lca_sp", values_to = "Rel_abundance")
   
-  # converting the _ to spaces 
-  df$Species <- gsub("_", " ", df$Species)
-  
-  return(df)
+  return(df2)
 }
 
 ##########################################
@@ -583,7 +747,7 @@ colnames(mirror_tax) <- c("op", "Species")
 
 # making and defining a function to process each data frame
 process_data <- function(df) {
-  # Set column names
+  # Set column names ## NOTE: name op as match instead for mirror ##
   col_names <- c("Query", "Q_length", "Q_start", "Q_end", "Strand", "match", "T_length", "T_start", 
                  "T_end", "N_res_matches", "Align_block", "MapQ", "NM", "ms", "AS", "nn", "P_S") 
   
@@ -615,55 +779,112 @@ process_data <- function(df) {
   # Filter rows based on Align_block
   df <- subset(df, Align_block > 2999)
   
-  # Summarise the data #
-  # finds the maximum value of the AS variable for each unique combination of Query, Tax, Matching, and MapQ #
-  # essentially picks the highest or the first when ASmax is also the same for Query that have same Matching, Tax and MapQ values #
-  df <- summaryBy(AS ~ Query + Tax + Matching + MapQ, data=df, FUN=max)
+  # getting all the unique hits out for a query sequence
+  df_uni <- df %>% filter(MapQ > 0)
+  df_uni_ids <- df_uni$Query
   
-  # selecting the Query-Matches with the highest MapQ value #
-  df <- df %>%
+  # filtering out all the query sequneces with unique hits from df that alos have non unique hits for them
+  df_uni_mapG0 <- df %>% filter(!(Query %in% df_uni_ids & MapQ == 0))
+  # in the non unique hits first filter by AS the ones with the highest alignment score is selected
+  # first getting out all the query that have MapQ = 0
+  df_map0 <- df_uni_mapG0 %>% filter(MapQ == 0)
+  
+  ## now looking at the the queries with multiple hits so MapQ = 0 with the AS score are different i.e. there is one max score comapred to the others,     #selecting based on that max 
+  df_map0_dAS <- df_map0 %>% 
+  group_by(Query) %>%
+  slice_max(AS, n = 1) %>%
+  ungroup() # This will leave the rows that have identical AS for a query
+  # get only the the one hist when mapQ = 0 and AS is different for one query
+  df_map0_dAS2 <- df_map0_dAS %>%
+  group_by(Query, AS) %>%
+  filter(!(n() > 1)) %>%
+  ungroup()
+  # rbind the unique hit where mapq > 0 (uni) and for the hits where mapQ = 0 but AS was diff with one higher than the other (dAS2)
+  df_uni_dAS2 <- rbind(df_uni, df_map0_dAS2)
+  # adding an lca column 
+  df_uni_dAS2$lca <- df_uni_dAS2$Tax 
+  
+  ## pull out the reads that have equal AS scores, i.e. multiple rows for the same AS
+  df_map0_sAS <- df_map0_dAS %>%
+  group_by(Query, AS) %>%
+  filter(n() > 1) %>%
+  ungroup()
+  # if the species is the same for the mutiple hits keep only the first entry
+    df_map0_sAS_sp <- df_map0_sAS %>%
+    group_by(Query, Tax) %>%
+    slice_head(n = 1) %>%
+    ungroup()  # so queries with (i) mapQ = 0 and same AS that all have hits to the same species only the first hit is taken, and (ii) all hits for mapQ = 0 and same AS that have different hits at species level as also kept
+    ## identifying (i) and (ii) from df_min0_sAS_sp and then adding lca 
+    # (i) pulling out the hits that have mapQ = 0 and same AS that all have hits to the same species only the first hit has been taken
+    df_map0_sAS_1sp <- df_map0_sAS_sp %>%
     group_by(Query) %>%
-    slice_max(MapQ) %>%
+    filter(!(n() > 1)) %>%
     ungroup()
-  
-  # selecting the Query-Matches with the highest AS.max value #
-  df <- df %>%
+    # formating tax a bit
+    df_map0_sAS_1sp <- df_map0_sAS_1sp %>%
+    separate(Tax, into = c("Genus", "Species"), sep = "_", remove = F) %>%  # Separate the 'Tax' column into 'Genus' and 'Species'
+    mutate(Tax = gsub("_", " ", Tax)) %>%  # Remove underscores from the 'Species' column if there are any left
+    select(-Species)
+    # adding an lca column to it 
+    df_map0_sAS_1sp$lca <- df_map0_sAS_1sp$Tax
+    # (ii) pulling out hits for mapQ = 0 and same AS that have different hits at species level as also kept
+    df_map0_sAS_msp <- df_map0_sAS_sp %>%
     group_by(Query) %>%
-    slice_max(AS.max) %>%
-    ungroup()
-  
-  # selecting the Query-Matches with the highest Matching value #
-    df <- df %>%
+    filter(n() > 1) %>%
+    ungroup() 
+    # now lets add the lowest common acestor for them 
+    # first separting tax column to genus and species 
+    df_map0_sAS_msp <- df_map0_sAS_msp %>%
+    separate(Tax, into = c("Genus", "Species"), sep = "_", remove = F) %>%  # Separate the 'Tax' column into 'Genus' and 'Species'
+    mutate(Tax = gsub("_", " ", Tax)) %>%  # Remove underscores from the 'Species' column if there are any left
+    select(-Species)
+    # low adding at LCA
+    df_map0_sAS_msp <- df_map0_sAS_msp %>%
     group_by(Query) %>%
-    slice_max(Matching) %>%
-    ungroup()
+    mutate(
+    lca = case_when(
+      n_distinct(Genus) == 1 ~ Genus,
+      TRUE ~ NA_character_  # If no common taxonomic level is found
+    )
+  ) %>%
+  ungroup() %>%
+  # keep only one hit now that lca has been added for muyltiple hits for one query
+  group_by(Query) %>%
+  slice_head(n = 1) %>%
+  ungroup()
+    # rbinding the map0_sAS dups and no dups 
+    df_m0_sAS <- rbind(df_map0_sAS_1sp, df_map0_sAS_msp)
   
-  # when MapQ, AS.max, and matching are all te same, select the first row of Query with duplicate values #
-  df <- df[!duplicated(df$Query), ]
-  
-  #### for mirror #####
+  ## rbinding it all now 
+  # before that
+  df_uni_dAS2 <- df_uni_dAS2 %>%
+    separate(Tax, into = c("Genus", "Species"), sep = "_", remove = F) %>%  # Separate the 'Tax' column into 'Genus' and 'Species'
+    mutate(Tax = gsub("_", " ", Tax)) %>%  # Remove underscores from the 'Species' column if there are any left
+    mutate(lca = gsub("_", " ", lca)) %>%
+    select(-Species)
+    # no binding it all
+    df2 <- rbind(df_uni_dAS2, df_m0_sAS)
+    
+  #### for rrn_DBv2 and mirror #####
   # Clean and organise the table
-  df <- df %>%
+  df2 <- df2 %>%
   # getting counts for all the alignments at species level #
-  group_by(Tax) %>%
+  group_by(lca) %>%
     summarise(Counts = n())
   
   # Reshape dataframe to wide format
-  df <- df %>%
-    pivot_wider(names_from = Tax, values_from = Counts, values_fill = 0)
+  df2 <- df2 %>%
+    pivot_wider(names_from = lca, values_from = Counts, values_fill = 0)
   
   ## changing counts to relative abundance ##
-  df <- df/rowSums(df)*100
-  rowSums(df) ## to check if each sample adds up to a 100 ##
+  df2 <- df2/rowSums(df2)*100
+  rowSums(df2) ## to check if each sample adds up to a 100 ##
   
   # Convert tf from wide back to long format
-  df <- df %>%
-    pivot_longer(cols = everything(), names_to = "Species", values_to = "Rel_abundance")
+  df2 <- df2 %>%
+    pivot_longer(cols = everything(), names_to = "lca_sp", values_to = "Rel_abundance")
   
-  # converting the _ to spaces 
-  df$Species <- gsub("_", " ", df$Species)
-  
-  return(df)
+  return(df2)
 }
 
 ##########################################
